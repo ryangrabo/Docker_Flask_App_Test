@@ -32,7 +32,7 @@ def index():
 
 @bp.route('/azuremapdemo')
 def get_azure_map():
-    return render_template('AzureMapDemo.html', azuremap_token=os.getenv('MAPBOX_TOKEN'))
+    return render_template('AzureMapDemo.html', azuremap_token=os.getenv('AZUREMAP_TOKEN'))
 
 @bp.route('/images')
 def get_images():
