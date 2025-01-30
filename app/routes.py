@@ -30,6 +30,10 @@ def allowed_file(filename):
 def index():
     return render_template('index.html', mapbox_token=os.getenv('MAPBOX_TOKEN'))
 
+@bp.route('/azuremapdemo')
+def get_azure_map():
+    return render_template('AzureMapDemo.html', azuremap_token=os.getenv('MAPBOX_TOKEN'))
+
 @bp.route('/images')
 def get_images():
     images = []
@@ -104,22 +108,3 @@ def upload_file():
         return redirect(url_for('main.index'))
     return render_template('upload.html')
 
-@bp.route('/categorize', methods=['GET', 'POST'])
-def categorize_images():
-    uncategorized_images = os.listdir(UPLOAD_FOLDERS[-1])  # Main images folder
-    uncategorized_images = [img for img in uncategorized_images if img.lower().endswith(('.png', '.jpg', '.jpeg'))]
-    
-    if request.method == 'POST':
-        image = request.form.get('image')
-        category = request.form.get('category')
-        if image and category:
-            source = os.path.join(UPLOAD_FOLDERS[-1], image)
-            destination_folder = next((folder for folder in UPLOAD_FOLDERS if category in folder), None)
-            if destination_folder:
-                destination = os.path.join(destination_folder, image)
-                os.rename(source, destination)
-            return redirect(url_for('main.categorize_images'))
-    
-    current_image = uncategorized_images[0] if uncategorized_images else None
-    
-    return render_template('categorize.html', current_image=current_image)
