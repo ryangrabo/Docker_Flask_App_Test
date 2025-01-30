@@ -1,0 +1,64 @@
+Ryan Grabowski 1/30/25
+
+Help setting up docker container: https://medium.com/@geeekfa/dockerizing-a-python-flask-app-a-step-by-step-guide-to-containerizing-your-web-application-d0f123159ba2
+
+Flask App in Docker
+
+Prerequisites
+- Install Docker: https://www.docker.com/get-started
+- Ensure requirements.txt and application.py are correctly set up
+
+Build the Docker Image
+To build the Docker image, run:
+docker build -t flask_app .
+
+Run the Container
+To run the container and expose it on port 5000:
+docker run -p 5000:5000 flask_app
+
+For detached mode (running in the background):
+docker run -d -p 5000:5000 flask_app
+
+Verify the Running Container
+Check if the container is running:
+docker ps
+
+Expected output should show something like:
+CONTAINER ID   IMAGE       COMMAND                  STATUS        PORTS                    NAMES
+xyz123abc456   flask_app   "gunicorn -b 0.0.0.0…"   Up 1 minute  0.0.0.0:5000->5000/tcp   flask_container
+
+Access the Application
+Open a browser and go to:
+http://localhost:5000/
+
+Or use:
+curl http://localhost:5000/
+
+Stopping the Container
+To stop the container, first find the container ID:
+docker ps
+
+Then stop it:
+docker stop <container_id>
+
+Running on a Different Port
+To run on port 8000 instead of 5000:
+docker run -p 8000:8000 flask_app
+
+Then access it at:
+http://localhost:8000/
+
+Checking Container Logs
+To see logs from the running container:
+docker logs <container_id>
+
+Removing Stopped Containers
+To remove a stopped container:
+docker rm <container_id>
+
+Rebuilding and Restarting
+If you make changes to the app, rebuild the image:
+docker build -t flask_app .
+
+Then restart the container:
+docker run -p 5000:5000 flask_app
