@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+config.yaml
+*.log
+Dockerfile~
+*.o
+*.so
+*.out
+*.class
+.vscode/
+.idea/
+*.sublime-workspace
