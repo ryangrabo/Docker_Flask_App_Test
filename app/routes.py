@@ -116,7 +116,7 @@ def upload_file():
 
 @bp.route("/test-image")
 def test_image():
-    client = MongoClient("mongodb://my_mongo:27017/")
+    client = MongoClient(MONGO_URI)
     db = client["seniorDesignTesting"]
     collection = db["sendAndRecievePlantInfoTest"]
 
