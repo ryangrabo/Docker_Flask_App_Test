@@ -1,110 +1,132 @@
 import os
-import exifread
 import logging
 from flask import Blueprint, render_template, jsonify, request, redirect, url_for
 from werkzeug.utils import secure_filename
+from pymongo import MongoClient
+from bson import ObjectId
 
-bp = Blueprint('main', __name__)
+bp = Blueprint("main", __name__)
 
-# Set up logging
-# logging.basicConfig(level=logging.DEBUG)  # Uncomment to see metadata values in the console
+# MongoDB connection details
+MONGO_URI = "mongodb://my_mongo:27017/"
+DATABASE_NAME = "seniorDesignTesting"
+COLLECTION_NAME = "sendAndRecievePlantInfoTest"
 
-# Ensure the 'uploads' directories exist
-UPLOAD_FOLDERS = [
-   ## going to be database connection
-]
-for folder in UPLOAD_FOLDERS:
-    os.makedirs(folder, exist_ok=True)
+# local/OneDrive folder for uploads:
+UPLOAD_FOLDER = r"C:\Users\frost\OneDrive - The Pennsylvania State University\2024_drone_images\purple_loosestrife\07-17-2024"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-ALLOWED_EXTENSIONS = {'jpg', 'jpeg'}
+ALLOWED_EXTENSIONS = {"jpg", "jpeg"}
 
-# Differential offset values
+# (Optional) Offsets for EXIF usage or other logic:
 LATITUDE_OFFSET = 0.00004
 LONGITUDE_OFFSET = 0.00
-AGL_OFFSET_FEET = -10  # Adjust to make AGL values around 20 feet
+AGL_OFFSET_FEET = -10  # Adjust to make AGL values ~20 feet
+
+logging.basicConfig(level=logging.INFO)
+
+
+def connect_to_mongodb():
+    """Connects to MongoDB and returns a client."""
+    client = MongoClient(MONGO_URI)
+    # Quick test to ensure we can ping the server
+    client.admin.command("ping")
+    print("Connected successfully to MongoDB")
+    return client
+
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@bp.route('/')
+
+@bp.route("/")
 def index():
-    return render_template('index.html', mapbox_token=os.getenv('MAPBOX_TOKEN'))
+    """Render a simple landing page."""
+    return render_template("index.html", mapbox_token=os.getenv("MAPBOX_TOKEN"))
 
-@bp.route('/azuremapdemo')
+
+@bp.route("/azuremapdemo")
 def get_azure_map():
-    return render_template('AzureMapDemo.html', azuremap_token=os.getenv('AZUREMAP_TOKEN'))
+    """(Optional) Another demo page."""
+    return render_template("AzureMapDemo.html", azuremap_token=os.getenv("AZUREMAP_TOKEN"))
 
-@bp.route('/images')
+
+import base64
+from bson import ObjectId
+
+@bp.route("/images")
 def get_images():
+    client = connect_to_mongodb()
+    db = client[DATABASE_NAME]
+    collection = db[COLLECTION_NAME]
+
+    docs = collection.find({})
     images = []
 
-    for root_folder in UPLOAD_FOLDERS:
-        for folder, _, filenames in os.walk(root_folder):
-            for filename in filenames:
-                if filename.lower().endswith('.jpg'):
-                    filepath = os.path.join(folder, filename)
-                    with open(filepath, 'rb') as f:
-                        tags = exifread.process_file(f)
+    for doc in docs:
+        # Convert ObjectId to string if you want to return it
+        doc_id = str(doc["_id"])
 
-                        gps_latitude = tags.get('GPS GPSLatitude')
-                        gps_longitude = tags.get('GPS GPSLongitude')
-                        gps_latitude_ref = tags.get('GPS GPSLatitudeRef')
-                        gps_longitude_ref = tags.get('GPS GPSLongitudeRef')
-                        gps_altitude = tags.get('GPS GPSAltitude')
-                        gps_img_direction = tags.get('GPS GPSImgDirection')
+        # Get the raw binary (BSON Binary type)
+        raw_image_data = doc.get("image_data")
 
-                        if gps_latitude and gps_longitude and gps_latitude_ref and gps_longitude_ref:
-                            lat = convert_to_degrees(gps_latitude, gps_latitude_ref.values)
-                            lon = convert_to_degrees(gps_longitude, gps_longitude_ref.values)
-                            yaw = float(gps_img_direction.values[0].num) / float(gps_img_direction.values[0].den) if gps_img_direction else 'Unknown'
+        # Convert to base64 if available
+        if raw_image_data:
+            image_data_base64 = base64.b64encode(raw_image_data).decode('utf-8')
+        else:
+            image_data_base64 = None
 
-                            # Apply differential offset
-                            lat -= LATITUDE_OFFSET
-                            lon -= LONGITUDE_OFFSET
+        images.append({
+            "_id": doc_id,
+            "filename": doc.get("filename"),
+            "lat": doc.get("lat"),
+            "lon": doc.get("lon"),
+            "yaw": doc.get("yaw"),
+            "msl_alt": doc.get("msl_alt"),
+            "agl": doc.get("agl"),
+            "agl_feet": doc.get("agl_feet"),
+            # Add the base64 field
+            "image_data_base64": image_data_base64
+        })
 
-                            # Parse altitude correctly
-                            if gps_altitude:
-                                altitude_meters = float(gps_altitude.values[0].num) / float(gps_altitude.values[0].den)
-                            else:
-                                altitude_meters = None
-
-                            # Without Google Maps, we won't have ground elevation data
-                            agl = 'undefined'
-                            agl_feet = 'undefined'
-
-                            logging.debug(f"Image: {filename}, Latitude: {lat}, Longitude: {lon}, Yaw: {yaw}, MSL Altitude: {altitude_meters} meters, AGL: {agl} meters, AGL: {agl_feet} feet")
-
-                            images.append({
-                                'filename': filename,
-                                'lat': lat,
-                                'lon': lon,
-                                'yaw': yaw,
-                                'msl_alt': altitude_meters,
-                                'agl': agl,
-                                'agl_feet': agl_feet
-                            })
-
+    client.close()
     return jsonify(images)
 
-def convert_to_degrees(value, ref):
-    d = value.values[0].num / value.values[0].den
-    m = value.values[1].num / value.values[1].den
-    s = value.values[2].num / value.values[2].den
-    result = d + (m / 60.0) + (s / 3600.0)
-    if ref in ['S', 'W']:
-        result = -result
-    return result
 
-@bp.route('/upload', methods=['GET', 'POST'])
+@bp.route("/upload", methods=["GET", "POST"])
 def upload_file():
-    if request.method == 'POST':
-        if 'file' not in request.files:
+    """
+    Upload JPG/JPEG files to a local folder. 
+    (Optionally, you could modify or remove if you prefer only DB-based workflows.)
+    """
+    if request.method == "POST":
+        if "file" not in request.files:
             return redirect(request.url)
-        files = request.files.getlist('file')
+
+        files = request.files.getlist("file")
         for file in files:
             if file and allowed_file(file.filename):
                 filename = secure_filename(file.filename)
-                file.save(os.path.join(UPLOAD_FOLDERS[-1], filename))  # Save to the main images folder
-        return redirect(url_for('main.index'))
-    return render_template('upload.html')
+                file.save(os.path.join(UPLOAD_FOLDER, filename))
+                logging.info(f"Uploaded file: {filename}")
+        return redirect(url_for("main.index"))
+    
+    return render_template("upload.html")
 
+
+@bp.route("/test-image")
+def test_image():
+    client = MongoClient("mongodb://my_mongo:27017/")
+    db = client["seniorDesignTesting"]
+    collection = db["sendAndRecievePlantInfoTest"]
+
+    doc = collection.find_one({"image_data": {"$exists": True}})
+    
+    if not doc:
+        return jsonify({"error": "No images found in database"}), 404
+
+    return jsonify({
+        "_id": str(doc["_id"]),
+        "filename": doc.get("filename"),
+        "image_data": base64.b64encode(doc["image_data"]).decode("utf-8") if "image_data" in doc else None
+    })

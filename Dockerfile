@@ -26,4 +26,5 @@ COPY .env .env
 EXPOSE 5000
 
 # Start Gunicorn with the correct entry point
-CMD ["gunicorn", "-b", "0.0.0.0:5000", "-w", "4", "application:create_app()"]
+CMD ["gunicorn", "-b", "0.0.0.0:5000", "-w", "4", "--timeout", "120", "application:create_app()"]
+
