@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Test Image Upload</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 2rem;
+    }
+    form {
+      max-width: 400px;
+      padding: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+    }
+    input[type="file"] {
+      margin-bottom: 1rem;
+    }
+    button {
+      padding: 0.5rem 1rem;
+      font-size: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Upload an Image for Testing</h1>
+  <!--
+    This form POSTs the image file to the "/upload" route.
+    Make sure your blueprint (or app route) accepts the file field named "file".
+  -->
+  <form action="{{ url_for('main.upload_file') }}" method="POST" enctype="multipart/form-data">
+    <label for="file">Select an image (JPG/JPEG):</label><br>
+    <input type="file" id="file" name="file" accept=".jpg, .jpeg" required multiple><br>
+    <button type="submit">Upload Image</button>
+  </form>
+</body>
+</html>

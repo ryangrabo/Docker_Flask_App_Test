@@ -1,24 +1,31 @@
 import os
 import logging
+import base64
 from flask import Blueprint, render_template, jsonify, request, redirect, url_for
 from werkzeug.utils import secure_filename
 from pymongo import MongoClient
-from bson import ObjectId
+from bson import ObjectId, Binary
+import exifread
+from io import BytesIO  # Ensure BytesIO is imported
+import socket
 
 bp = Blueprint("main", __name__)
 
-# MongoDB connection details
-MONGO_URI = "mongodb://my_mongo:27017/"
+
+
+# Use the Docker service name when running inside Docker
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+
 DATABASE_NAME = "seniorDesignTesting"
 COLLECTION_NAME = "sendAndRecievePlantInfoTest"
 
-# local/OneDrive folder for uploads:
+# Local/OneDrive folder for uploads:
 UPLOAD_FOLDER = r"C:\Users\frost\OneDrive - The Pennsylvania State University\2024_drone_images\purple_loosestrife\07-17-2024"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {"jpg", "jpeg"}
 
-# (Optional) Offsets for EXIF usage or other logic:
+# Offsets for drone error:
 LATITUDE_OFFSET = 0.00004
 LONGITUDE_OFFSET = 0.00
 AGL_OFFSET_FEET = -10  # Adjust to make AGL values ~20 feet
@@ -39,6 +46,26 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def convert_to_degrees(value, ref_tag):
+    """
+    Converts the GPS coordinates stored in the EXIF to degrees in float format.
+    :param value: EXIF GPS coordinate value.
+    :param ref_tag: EXIF GPS reference tag (e.g., 'N', 'S', 'E', 'W').
+    :return: GPS coordinate in degrees (float) or None if conversion fails.
+    """
+    try:
+        d = value.values[0].num / value.values[0].den
+        m = value.values[1].num / value.values[1].den
+        s = value.values[2].num / value.values[2].den
+        result = d + (m / 60.0) + (s / 3600.0)
+        if ref_tag and ref_tag.values[0] in ['S', 'W']:
+            result = -result
+        return result
+    except Exception as e:
+        logging.error(f"Error converting GPS value: {e}")
+        return None
+
+
 @bp.route("/")
 def index():
     """Render a simple landing page."""
@@ -51,9 +78,6 @@ def get_azure_map():
     return render_template("AzureMapDemo.html", azuremap_token=os.getenv("AZUREMAP_TOKEN"))
 
 
-import base64
-from bson import ObjectId
-
 @bp.route("/images")
 def get_images():
     client = connect_to_mongodb()
@@ -62,7 +86,9 @@ def get_images():
 
     docs = collection.find({})
     images = []
-
+    logging.info(f" Writing to database: {db.name}")
+    logging.info(f" Writing to collection: {collection.name}")
+    logging.info(f" Document count before upload: {collection.count_documents({})}")
     for doc in docs:
         # Convert ObjectId to string if you want to return it
         doc_id = str(doc["_id"])
@@ -92,35 +118,97 @@ def get_images():
     client.close()
     return jsonify(images)
 
-
 @bp.route("/upload", methods=["GET", "POST"])
 def upload_file():
-    """
-    Upload JPG/JPEG files to a local folder. 
-    (Optionally, you could modify or remove if you prefer only DB-based workflows.)
-    """
     if request.method == "POST":
         if "file" not in request.files:
+            logging.error(" No file part in request")
             return redirect(request.url)
 
         files = request.files.getlist("file")
+        client = connect_to_mongodb()
+        db = client[DATABASE_NAME]
+        collection = db[COLLECTION_NAME]
+
+        # Log database and collection being used
+        logging.info(f" Writing to database: {db.name}")
+        logging.info(f" Writing to collection: {collection.name}")
+        logging.info(f" Document count before upload: {collection.count_documents({})}")
+
         for file in files:
             if file and allowed_file(file.filename):
                 filename = secure_filename(file.filename)
-                file.save(os.path.join(UPLOAD_FOLDER, filename))
-                logging.info(f"Uploaded file: {filename}")
+
+                # Read file bytes into memory
+                file_bytes = file.read()
+
+                # Create a BytesIO stream for EXIF processing
+                stream = BytesIO(file_bytes)
+                tags = exifread.process_file(stream, details=False)
+
+                # Extract GPS data if available
+                if 'GPS GPSLatitude' in tags and 'GPS GPSLongitude' in tags:
+                    lat = convert_to_degrees(tags['GPS GPSLatitude'], tags.get('GPS GPSLatitudeRef'))
+                    lon = convert_to_degrees(tags['GPS GPSLongitude'], tags.get('GPS GPSLongitudeRef'))
+                    # Apply offsets if needed
+                    lat = lat - LATITUDE_OFFSET if lat is not None else None
+                    lon = lon - LONGITUDE_OFFSET if lon is not None else None
+                else:
+                    lat, lon = None, None
+
+                # Extract image direction (yaw) if available
+                if 'GPS GPSImgDirection' in tags:
+                    try:
+                        direction = tags['GPS GPSImgDirection'].values[0]
+                        yaw = float(direction.num) / float(direction.den)
+                    except Exception:
+                        yaw = "Unknown"
+                else:
+                    yaw = "Unknown"
+
+                # Extract altitude (meters) if available
+                if 'GPS GPSAltitude' in tags:
+                    try:
+                        altitude = tags['GPS GPSAltitude'].values[0]
+                        altitude_meters = float(altitude.num) / float(altitude.den)
+                    except Exception:
+                        altitude_meters = None
+                else:
+                    altitude_meters = None
+
+                # Build metadata dictionary
+                image_metadata = {
+                    'filename': filename,
+                    'lat': lat,
+                    'lon': lon,
+                    'yaw': yaw,
+                    'msl_alt': altitude_meters,
+                    'agl': 'undefined',
+                    'agl_feet': 'undefined',
+                    'image_data': Binary(file_bytes)
+                }
+
+                # Insert into MongoDB
+                result = collection.insert_one(image_metadata)
+                logging.info(f" Inserted document with id: {result.inserted_id}")
+
+        # Check if the document was successfully inserted
+        logging.info(f" Document count after upload: {collection.count_documents({})}")
+        logging.info(f" Sample document: {collection.find_one()}")
+
+        client.close()
         return redirect(url_for("main.index"))
-    
-    return render_template("upload.html")
+
+    return render_template("testUpload.html")
 
 
 @bp.route("/test-image")
 def test_image():
-    client = MongoClient(MONGO_URI)
-    db = client["seniorDesignTesting"]
-    collection = db["sendAndRecievePlantInfoTest"]
+    client = connect_to_mongodb()
+    db = client[DATABASE_NAME]
+    collection = db[COLLECTION_NAME]
 
-    doc = collection.find_one({"image_data": {"$exists": True}})
+    doc = collection.find_one()
     
     if not doc:
         return jsonify({"error": "No images found in database"}), 404

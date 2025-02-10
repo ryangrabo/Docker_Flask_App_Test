@@ -1,18 +1,31 @@
 version: '3.8'
 
 services:
-  mongo:
-    image: mongo:6.0
-    container_name: my_mongo
-    ports:
-      - "27017:27017"
-
-  web:
+  flask_app:
     build: .
     container_name: flask_app
+    depends_on:
+      - mongodbtest
+    environment:
+      - NODE_ENV=production  # (Optional, for future use)
+      - MONGO_URI=mongodb://mongodbtest:27017/  # Ensures Flask connects to MongoDB in Docker
     ports:
       - "5000:5000"
-    environment:
-      - MONGO_URI = "mongodb://my_mongo:27017/"
-    depends_on:
-      - mongo
+    develop:
+      watch:
+        - path: ./app  # Auto-rebuild Flask when code changes
+          target: /Docker_Flask_App_Test
+          action: sync
+
+  mongodbtest:
+    image: mongo:6.0
+    container_name: mongodbtest
+    ports:
+      - "27017:27017"
+    # Uncomment this if you want MongoDB data persistence across container restarts
+    volumes:
+      - mongo-data:/data/db
+
+# Uncomment this if you enable MongoDB volumes
+# volumes:
+#   mongo-data:
