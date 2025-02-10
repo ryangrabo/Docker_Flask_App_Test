@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Interactive Map</title>
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+  <!-- Mapbox CSS/JS -->
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.8.1/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.8.1/mapbox-gl.css" rel="stylesheet">
+  <!-- Our CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+
+  <style>
+    body { margin: 0; padding: 0; }
+    #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+    .marker {
+      background-image: url('/static/free-plant-icon-for-marker.png');
+      background-size: cover;
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .mapboxgl-popup-content {
+      text-align: center;
+      font-family: 'Open Sans', sans-serif;
+    }
+    .controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1;
+      background-color: white;
+      padding: 10px;
+      border-radius: 4px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    .controls button {
+      margin: 2px;
+      padding: 5px 10px;
+    }
+    #imageSize {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 1;
+      background-color: white;
+      padding: 5px 10px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="controls">
+    <div>
+      <button onclick="setMapStyle('mapbox://styles/mapbox/streets-v11')">Streets</button>
+      <button onclick="setMapStyle('mapbox://styles/mapbox/light-v10')">Light</button>
+      <button onclick="setMapStyle('mapbox://styles/mapbox/dark-v10')">Dark</button>
+      <button onclick="setMapStyle('mapbox://styles/mapbox/satellite-v9')">Satellite</button>
+      <button onclick="setMapStyle('mapbox://styles/mapbox/satellite-streets-v11')">Satellite Streets</button>
+      <button onclick="setMapStyle('mapbox://styles/mapbox/outdoors-v11')">Outdoors</button>
+    </div>
+    <div>
+      <button onclick="location.href='/upload'">Upload Images</button>
+    </div>
+  </div>
+
+  <div id="imageSize">
+    <label for="sizeSlider">Marker Image Size:</label>
+    <input type="range" id="sizeSlider" min="50" max="300" value="100" oninput="updateImageSize(this.value)">
+  </div>
+
+  <script>
+    const mapboxToken = "{{ mapbox_token }}";
+    mapboxgl.accessToken = mapboxToken;
+
+    var map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/streets-v11',
+      center: [-79.986255, 42.124078],
+      zoom: 12
+    });
+
+    // Instead of manually creating markers, we now add a clustered source.
+    // https://docs.mapbox.com/mapbox-gl-js/example/cluster-html/
+    // "currentImageSize" will be used to adjust the icon size for unclustered points.
+    var currentImageSize = 100;
+
+    function addMarkers() {
+      // Remove existing layers/source if they exist (this is useful when switching styles)
+      if (map.getLayer('clusters')) { map.removeLayer('clusters'); }
+      if (map.getLayer('cluster-count')) { map.removeLayer('cluster-count'); }
+      if (map.getLayer('unclustered-point')) { map.removeLayer('unclustered-point'); }
+      if (map.getSource('images')) { map.removeSource('images'); }
+
+      // Add the GeoJSON source from the /images endpoint with clustering enabled.
+      map.addSource('images', {
+        type: 'geojson',
+        data: '/images',  //gets the images
+        cluster: true,
+        clusterRadius: 80,
+        clusterProperties: {
+          count: ['+', 1]
+        }
+      });
+
+      // Layer for clusters (grouped points)
+      map.addLayer({
+        id: 'clusters',
+        type: 'circle',
+        source: 'images',
+        filter: ['has', 'point_count'],
+        paint: {
+          'circle-color': [
+            'step',
+            ['get', 'point_count'],
+            '#51bbd6',
+            10,
+            '#f1f075',
+            30,
+            '#f28cb1'
+          ],
+          'circle-radius': [
+            'step',
+            ['get', 'point_count'],
+            15,
+            10,
+            20,
+            30,
+            25
+          ]
+        }
+      });
+
+      // Layer for cluster count labels
+      map.addLayer({
+        id: 'cluster-count',
+        type: 'symbol',
+        source: 'images',
+        filter: ['has', 'point_count'],
+        layout: {
+          'text-field': '{point_count_abbreviated}',
+          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+          'text-size': 12
+        }
+      });
+
+      // Layer for individual (unclustered) points.
+      map.addLayer({
+        id: 'unclustered-point',
+        type: 'symbol',
+        source: 'images',
+        filter: ['!', ['has', 'point_count']],
+        layout: {
+          'icon-image': 'marker-15', // Default Mapbox marker icon
+          'icon-size': currentImageSize / 50  // Adjust scaling based on slider value
+        }
+      });
+
+      // Zoom into clusters when clicked.
+      map.on('click', 'clusters', function (e) {
+        const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
+        const clusterId = features[0].properties.cluster_id;
+        map.getSource('images').getClusterExpansionZoom(clusterId, function (err, zoom) {
+          if (err) return;
+          map.easeTo({
+            center: features[0].geometry.coordinates,
+            zoom: zoom
+          });
+        });
+      });
+
+      // Change the cursor to a pointer when hovering over clusters.
+      map.on('mouseenter', 'clusters', function () {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', 'clusters', function () {
+        map.getCanvas().style.cursor = '';
+      });
+
+      // For unclustered points, display a popup on click.
+      map.on('click', 'unclustered-point', function (e) {
+        const coordinates = e.features[0].geometry.coordinates.slice();
+        const props = e.features[0].properties;
+        let popupContent = `<h3>${props.filename}</h3>
+          <p><strong>Latitude, Longitude:</strong> ${props.lat}, ${props.lon}</p>
+          <p><strong>MSL Altitude:</strong> ${props.msl_alt}</p>
+          <p><strong>Yaw:</strong> ${props.yaw}°</p>`;
+          //image not showing rn
+        if (props.image_data_base64) {
+          popupContent += `<img src="data:image/jpeg;base64,${props.image_data_base64}" alt="${props.filename}" style="max-width:${currentImageSize}px; height:auto;">`;
+        } else {
+          popupContent += `<p>No image data stored in DB.</p>`;
+        }
+        new mapboxgl.Popup()
+          .setLngLat(coordinates)
+          .setHTML(popupContent)
+          .addTo(map);
+      });
+
+      // Change cursor for unclustered points.
+      map.on('mouseenter', 'unclustered-point', function () {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', 'unclustered-point', function () {
+        map.getCanvas().style.cursor = '';
+      });
+    }
+
+    // When the slider value changes, update the icon size for unclustered points.
+    function updateImageSize(size) {
+      currentImageSize = size;
+      if (map.getLayer('unclustered-point')) {
+        map.setLayoutProperty('unclustered-point', 'icon-size', currentImageSize / 50);
+      }
+    }
+
+    // Switch styles and ensure the markers are re-added after the new style loads.
+    function setMapStyle(style) {
+      map.setStyle(style);
+      map.once('style.load', addMarkers);
+    }
+
+    map.on('load', addMarkers);
+    map.addControl(new mapboxgl.NavigationControl());
+  </script>
+</body>
+</html>

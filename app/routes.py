@@ -69,54 +69,112 @@ def convert_to_degrees(value, ref_tag):
 @bp.route("/")
 def index():
     """Render a simple landing page."""
-    return render_template("index.html", mapbox_token=os.getenv("MAPBOX_TOKEN"))
+    return render_template("index_clustering.html", mapbox_token=os.getenv("MAPBOX_TOKEN"))
+    #return render_template("index.html", mapbox_token=os.getenv("MAPBOX_TOKEN"))
 
 
-@bp.route("/azuremapdemo")
-def get_azure_map():
-    """(Optional) Another demo page."""
-    return render_template("AzureMapDemo.html", azuremap_token=os.getenv("AZUREMAP_TOKEN"))
+# @bp.route("/azuremapdemo")
+# def get_azure_map():
+#     """(Optional) Another demo page."""
+#     return render_template("AzureMapDemo.html", azuremap_token=os.getenv("AZUREMAP_TOKEN"))
 
 
-@bp.route("/images")
+# @bp.route("/images")
+# def get_images():
+#     client = connect_to_mongodb()
+#     db = client[DATABASE_NAME]
+#     collection = db[COLLECTION_NAME]
+
+#     docs = collection.find({})
+#     images = []
+#     # logging.info(f" Writing to database: {db.name}")
+#     # logging.info(f" Writing to collection: {collection.name}")
+#     # logging.info(f" Document count before upload: {collection.count_documents({})}")
+#     for doc in docs:
+#         # Convert ObjectId to string if you want to return it
+#         doc_id = str(doc["_id"])
+
+#         # Get the raw binary (BSON Binary type)
+#         raw_image_data = doc.get("image_data")
+
+#         # Convert to base64 if available
+#         if raw_image_data:
+#             image_data_base64 = base64.b64encode(raw_image_data).decode('utf-8')
+#         else:
+#             image_data_base64 = None
+
+#         images.append({
+#             "_id": doc_id,
+#             "filename": doc.get("filename"),
+#             "lat": doc.get("lat"),
+#             "lon": doc.get("lon"),
+#             "yaw": doc.get("yaw"),
+#             "msl_alt": doc.get("msl_alt"),
+#             "agl": doc.get("agl"),
+#             "agl_feet": doc.get("agl_feet"),
+#             # Add the base64 field
+#             "image_data_base64": image_data_base64
+#         })
+
+#     client.close()
+#     return jsonify(images)
+
+import base64
+from flask import jsonify
+
+@bp.route('/images')
 def get_images():
+    """Fetches image data from MongoDB and returns it as a GeoJSON FeatureCollection."""
     client = connect_to_mongodb()
     db = client[DATABASE_NAME]
     collection = db[COLLECTION_NAME]
 
     docs = collection.find({})
-    images = []
-    logging.info(f" Writing to database: {db.name}")
-    logging.info(f" Writing to collection: {collection.name}")
-    logging.info(f" Document count before upload: {collection.count_documents({})}")
+#start the geojson data
+    geojson_data = {
+        "type": "FeatureCollection",
+        "features": []
+    }
+
     for doc in docs:
-        # Convert ObjectId to string if you want to return it
+        # Convert ObjectId to string so that mapbox had a marker id for the point for clustering
         doc_id = str(doc["_id"])
 
-        # Get the raw binary (BSON Binary type)
-        raw_image_data = doc.get("image_data")
+        # Access the 'properties' dictionary correctly
+        properties = doc.get("properties", {})
 
-        # Convert to base64 if available
-        if raw_image_data:
-            image_data_base64 = base64.b64encode(raw_image_data).decode('utf-8')
-        else:
-            image_data_base64 = None
+        # Extract image binary data if available
+        raw_image_data = properties.get("image_data_binary")
+        image_data_base64 = None
 
-        images.append({
-            "_id": doc_id,
-            "filename": doc.get("filename"),
-            "lat": doc.get("lat"),
-            "lon": doc.get("lon"),
-            "yaw": doc.get("yaw"),
-            "msl_alt": doc.get("msl_alt"),
-            "agl": doc.get("agl"),
-            "agl_feet": doc.get("agl_feet"),
-            # Add the base64 field
-            "image_data_base64": image_data_base64
-        })
+        if raw_image_data and isinstance(raw_image_data, dict) and "$binary" in raw_image_data:
+            image_data_base64 = raw_image_data["$binary"]["base64"]
 
-    client.close()
-    return jsonify(images)
+        # Create a valid GeoJSON feature
+        feature = {
+            "type": "Feature",
+            "properties": {
+                "_id": doc_id,
+                "filename": properties.get("filename"),
+                "lat": properties.get("lat"),
+                "lon": properties.get("lon"),
+                "yaw": properties.get("yaw"),
+                "msl_alt": properties.get("msl_alt"),
+                "agl": properties.get("agl", "undefined"),
+                "agl_feet": properties.get("agl_feet", "undefined"),
+                # Include base64 image data
+                "image_data_base64": image_data_base64
+            },
+            "geometry": {
+                "type": "Point",
+                "coordinates": [properties.get("lon"), properties.get("lat")]
+            }
+        }
+
+        geojson_data["features"].append(feature)
+
+    return jsonify(geojson_data)
+
 
 @bp.route("/upload", methods=["GET", "POST"])
 def upload_file():
@@ -130,10 +188,10 @@ def upload_file():
         db = client[DATABASE_NAME]
         collection = db[COLLECTION_NAME]
 
-        # Log database and collection being used
-        logging.info(f" Writing to database: {db.name}")
-        logging.info(f" Writing to collection: {collection.name}")
-        logging.info(f" Document count before upload: {collection.count_documents({})}")
+        # # Log database and collection being used
+        # logging.info(f" Writing to database: {db.name}")
+        # logging.info(f" Writing to collection: {collection.name}")
+        # logging.info(f" Document count before upload: {collection.count_documents({})}")
 
         for file in files:
             if file and allowed_file(file.filename):
@@ -146,7 +204,7 @@ def upload_file():
                 stream = BytesIO(file_bytes)
                 tags = exifread.process_file(stream, details=False)
 
-                # Extract GPS data if available
+                # Extract GPS data
                 if 'GPS GPSLatitude' in tags and 'GPS GPSLongitude' in tags:
                     lat = convert_to_degrees(tags['GPS GPSLatitude'], tags.get('GPS GPSLatitudeRef'))
                     lon = convert_to_degrees(tags['GPS GPSLongitude'], tags.get('GPS GPSLongitudeRef'))
@@ -177,17 +235,31 @@ def upload_file():
                     altitude_meters = None
 
                 # Build metadata dictionary
+                # image_metadata = {
+                #     'filename': filename,
+                #     'lat': lat,
+                #     'lon': lon,
+                #     'yaw': yaw,
+                #     'msl_alt': altitude_meters,
+                #     'agl': 'undefined',
+                #     'agl_feet': 'undefined',
+                #     'image_data': Binary(file_bytes)
+                # }
                 image_metadata = {
-                    'filename': filename,
-                    'lat': lat,
-                    'lon': lon,
-                    'yaw': yaw,
-                    'msl_alt': altitude_meters,
-                    'agl': 'undefined',
-                    'agl_feet': 'undefined',
-                    'image_data': Binary(file_bytes)
-                }
-
+                            "type": "Feature",
+                            "properties": {
+                            "filename": filename,
+                            "lat": lat,
+                            "lon": lon,
+                            "yaw": yaw,
+                            "msl_alt": altitude_meters,
+                            "image_data_base64": Binary(file_bytes)
+                            },
+                            "geometry": {
+                                "type": "Point",
+                                "coordinates": [lon, lat]
+                            }
+                        }
                 # Insert into MongoDB
                 result = collection.insert_one(image_metadata)
                 logging.info(f" Inserted document with id: {result.inserted_id}")

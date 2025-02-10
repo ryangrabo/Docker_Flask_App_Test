@@ -1,0 +1,16 @@
+.marker-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: fit-content;
+    height: fit-content;
+}
+
+.marker {
+    background-size: cover;
+    width: 50px; /* Default size */
+    height: 50px;
+    border-radius: 50%;
+    cursor: pointer;
+    transform-origin: center; /* Ensure it rotates around its center */
+}

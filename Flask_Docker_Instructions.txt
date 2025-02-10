@@ -62,3 +62,10 @@ docker build -t flask_app .
 
 Then restart the container:
 docker run -p 5000:5000 flask_app
+
+to find docker image of db
+docker ps
+find the id associated to the image
+docker exec -it [id] /bin/bash 
+once in the terminal, do mongosh
+find where its connected to and copy that into mongodbcompass

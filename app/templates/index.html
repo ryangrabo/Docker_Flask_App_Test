@@ -7,6 +7,9 @@
     <!-- Mapbox CSS/JS -->
     <script src="https://api.mapbox.com/mapbox-gl-js/v2.8.1/mapbox-gl.js"></script>
     <link href="https://api.mapbox.com/mapbox-gl-js/v2.8.1/mapbox-gl.css" rel="stylesheet">
+        <!-- Our CSS -->
+        <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+
     <style>
         body { margin: 0; padding: 0; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; }
@@ -82,7 +85,7 @@
         var markers = [];
         var currentImageSize = 100;
 
-        // Populate markers from /images
+                // Populate markers from /images
         function addMarkers() {
             // Remove any existing markers
             markers.forEach(marker => marker.remove());
@@ -92,25 +95,29 @@
                 .then(response => response.json())
                 .then(data => {
                     data.forEach(image => {
-                        // Create marker element
+                        // Create a wrapper div for the marker
                         var el = document.createElement('div');
-                        el.className = 'marker';
-                        // Rotate the marker by yaw, if desired
-                        el.style.transform = `rotate(${image.yaw}deg)`;
-                        el.style.width = currentImageSize + 'px';
-                        el.style.height = currentImageSize + 'px';
+                        el.className = 'marker-wrapper';
+
+                        // Create an inner div for the rotating image
+                        var imgDiv = document.createElement('div');
+                        imgDiv.className = 'marker';
+                        imgDiv.style.backgroundImage = "url('/static/free-plant-icon-for-marker.png')";
+                        imgDiv.style.width = currentImageSize + 'px';
+                        imgDiv.style.height = currentImageSize + 'px';
+                        imgDiv.style.transform = `rotate(${image.yaw}deg)`;
+
+                        // Append the rotating div inside the wrapper
+                        el.appendChild(imgDiv);
 
                         // Build popup HTML
                         var popupContent = `
                             <h3>${image.filename}</h3>
-                            <p><strong>Latitude:</strong> ${image.lat}</p>
-                            <p><strong>Longitude:</strong> ${image.lon}</p>
+                            <p><strong>Latitude, Longitude:</strong> ${image.lat}, ${image.lon}</p>
                             <p><strong>MSL Altitude:</strong> ${image.msl_alt}</p>
-                            <p><strong>AGL (feet):</strong> ${image.agl_feet}</p>
-                            <p><strong>Yaw:</strong> ${image.yaw}</p>
+                            <p><strong>Yaw:</strong> ${image.yaw}°</p>
                         `;
 
-                        // If we have base64 data, embed as an inline image
                         if (image.image_data_base64) {
                             popupContent += `
                                 <img 
@@ -125,7 +132,7 @@
 
                         var popup = new mapboxgl.Popup({ offset: 25 }).setHTML(popupContent);
 
-                        // Create Marker
+                        // Create Marker with the wrapper element
                         var marker = new mapboxgl.Marker(el)
                             .setLngLat([image.lon, image.lat])
                             .setPopup(popup)
@@ -136,20 +143,20 @@
                 });
         }
 
-        // Called whenever the slider changes
-        function updateImageSize(size) {
-            currentImageSize = size;
-            addMarkers();
-        }
+            // Called whenever the slider changes
+            function updateImageSize(size) {
+                currentImageSize = size;
+                addMarkers();
+            }
 
-        // Switch styles
-        function setMapStyle(style) {
-            map.setStyle(style);
-            map.once('style.load', addMarkers);
-        }
+            // Switch styles
+            function setMapStyle(style) {
+                map.setStyle(style);
+                map.once('style.load', addMarkers);
+            }
 
-        map.on('load', addMarkers);
-        map.addControl(new mapboxgl.NavigationControl());
-    </script>
-</body>
-</html>
+            map.on('load', addMarkers);
+            map.addControl(new mapboxgl.NavigationControl());
+        </script>
+    </body>
+    </html>

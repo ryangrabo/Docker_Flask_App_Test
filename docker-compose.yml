@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   flask_app:
@@ -23,8 +22,8 @@ services:
     ports:
       - "27017:27017"
     # Uncomment this if you want MongoDB data persistence across container restarts
-    volumes:
-      - mongo-data:/data/db
+    # volumes:
+    #   - mongo-data:/data/db
 
 # Uncomment this if you enable MongoDB volumes
 # volumes:
