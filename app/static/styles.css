@@ -14,3 +14,42 @@
     cursor: pointer;
     transform-origin: center; /* Ensure it rotates around its center */
 }
+#loadingOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column; /* Stack elements vertically */
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    color: white;
+    font-family: Arial, sans-serif;
+    z-index: 1000;
+}
+
+#loadingText {
+    font-size: 18px;
+    margin-bottom: 20px;
+}
+
+#projectInfo {
+    background: rgba(0, 0, 0, 0.7); /* Darker background for better contrast */
+    padding: 20px;
+    border-radius: 8px;
+    width: 50%;
+    max-width: 650px;
+    text-align: center;
+}
+
+#projectInfo h2, #projectInfo h3, #projectInfo h4 {
+    margin: 10px 0;
+}
+
+#projectInfo p {
+    margin: 5px 0;
+    font-size: 14px;
+}

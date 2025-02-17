@@ -1,12 +1,14 @@
 import os
 import logging
 import base64
-from flask import Blueprint, render_template, jsonify, request, redirect, url_for
+from flask import Blueprint, render_template, jsonify, request, redirect, url_for, send_file, abort, Flask, Response
 from werkzeug.utils import secure_filename
 from pymongo import MongoClient
+import pymongo
 from bson import ObjectId, Binary
 import exifread
 from io import BytesIO  # Ensure BytesIO is imported
+import io
 import socket
 
 bp = Blueprint("main", __name__)
@@ -72,56 +74,6 @@ def index():
     return render_template("index_clustering.html", mapbox_token=os.getenv("MAPBOX_TOKEN"))
     #return render_template("index.html", mapbox_token=os.getenv("MAPBOX_TOKEN"))
 
-
-# @bp.route("/azuremapdemo")
-# def get_azure_map():
-#     """(Optional) Another demo page."""
-#     return render_template("AzureMapDemo.html", azuremap_token=os.getenv("AZUREMAP_TOKEN"))
-
-
-# @bp.route("/images")
-# def get_images():
-#     client = connect_to_mongodb()
-#     db = client[DATABASE_NAME]
-#     collection = db[COLLECTION_NAME]
-
-#     docs = collection.find({})
-#     images = []
-#     # logging.info(f" Writing to database: {db.name}")
-#     # logging.info(f" Writing to collection: {collection.name}")
-#     # logging.info(f" Document count before upload: {collection.count_documents({})}")
-#     for doc in docs:
-#         # Convert ObjectId to string if you want to return it
-#         doc_id = str(doc["_id"])
-
-#         # Get the raw binary (BSON Binary type)
-#         raw_image_data = doc.get("image_data")
-
-#         # Convert to base64 if available
-#         if raw_image_data:
-#             image_data_base64 = base64.b64encode(raw_image_data).decode('utf-8')
-#         else:
-#             image_data_base64 = None
-
-#         images.append({
-#             "_id": doc_id,
-#             "filename": doc.get("filename"),
-#             "lat": doc.get("lat"),
-#             "lon": doc.get("lon"),
-#             "yaw": doc.get("yaw"),
-#             "msl_alt": doc.get("msl_alt"),
-#             "agl": doc.get("agl"),
-#             "agl_feet": doc.get("agl_feet"),
-#             # Add the base64 field
-#             "image_data_base64": image_data_base64
-#         })
-
-#     client.close()
-#     return jsonify(images)
-
-import base64
-from flask import jsonify
-
 @bp.route('/images')
 def get_images():
     """Fetches image data from MongoDB and returns it as a GeoJSON FeatureCollection."""
@@ -175,6 +127,33 @@ def get_images():
 
     return jsonify(geojson_data)
 
+@bp.route("/get_image/<image_id>")
+def get_image(image_id):
+    client = connect_to_mongodb()
+    db = client[DATABASE_NAME]
+    collection = db[COLLECTION_NAME]
+    """Fetch image stored in base64 format from MongoDB."""
+    try:
+        logging.info(f"Retrieving image with ID: {image_id}")
+        image_doc = collection.find_one({"_id": ObjectId(image_id)})
+
+        if not image_doc or "image_data" not in image_doc["properties"]:
+            logging.error("Image not found in MongoDB.")
+            return abort(404, "Image not found")
+
+        image_data = image_doc["properties"]["image_data"]  # BSON Binary
+
+        # Ensure it's in correct binary format
+        if not isinstance(image_data, bytes):
+            logging.error("Stored image is not in bytes format.")
+            return abort(500, "Invalid image format")
+
+        logging.info("Successfully retrieved image from MongoDB.")
+        return Response(image_data, mimetype="image/jpeg")
+
+    except Exception as e:
+        logging.error(f"Error retrieving image {image_id}: {e}")
+        return abort(500)
 
 @bp.route("/upload", methods=["GET", "POST"])
 def upload_file():
@@ -234,17 +213,6 @@ def upload_file():
                 else:
                     altitude_meters = None
 
-                # Build metadata dictionary
-                # image_metadata = {
-                #     'filename': filename,
-                #     'lat': lat,
-                #     'lon': lon,
-                #     'yaw': yaw,
-                #     'msl_alt': altitude_meters,
-                #     'agl': 'undefined',
-                #     'agl_feet': 'undefined',
-                #     'image_data': Binary(file_bytes)
-                # }
                 image_metadata = {
                             "type": "Feature",
                             "properties": {
