@@ -16,7 +16,8 @@ DATABASE_NAME = "seniorDesignTesting"
 COLLECTION_NAME = "sendAndRecievePlantInfoTest"
 
 # Define the upload folder
-UPLOAD_FOLDERS = r"C:\Users\frost\OneDrive - The Pennsylvania State University\DRONES ONLY\2024_drone_images"
+#UPLOAD_FOLDERS = r"C:\Users\frost\OneDrive - The Pennsylvania State University\DRONES ONLY\2024_drone_images"
+UPLOAD_FOLDERS = r"/home/landon/Senior-Design/Training"
 
 # Ensure the upload folder exists
 os.makedirs(UPLOAD_FOLDERS, exist_ok=True)
