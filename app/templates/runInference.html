@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Upload Images</title>
+    <title>Run Inference on Images</title>
     <style>
         img {
             width: 150px;
@@ -26,8 +26,7 @@
             width: 100%;
             height: 100%;
             overflow: auto;
-            background-color: rgb(0,0,0);
-            background-color: rgba(0,0,0,0.4);
+            background-color: rgba(0, 0, 0, 0.4);
         }
         .modal-content {
             background-color: #fefefe;
@@ -48,17 +47,30 @@
             text-decoration: none;
             cursor: pointer;
         }
+        #results {
+            margin-top: 20px;
+        }
+        .result-item {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 5px;
+            background-color: #f9f9f9;
+        }
     </style>
 </head>
 <body>
-    <h1>Upload Images</h1>
-    <form method="post" enctype="multipart/form-data" action="/upload">
-        <input type="file" name="file" multiple directory webkitdirectory onchange="previewFiles()">
+    <h1>Run Inference on Images</h1>
+
+    <form id="uploadForm" enctype="multipart/form-data">
+        <input type="file" name="file" multiple onchange="previewFiles()">
         <button type="button" onclick="selectAllFiles()">Select All Files</button>
         <div id="preview"></div>
-        <button type="submit">Upload Selected Images</button>
+        <button type="submit">Run Inference</button>
     </form>
+
     <a href="/">Go back to the map</a>
+
+    <div id="results"></div>
 
     <div id="myModal" class="modal">
         <div class="modal-content">
@@ -86,13 +98,9 @@
                         image.title = file.name;
                         image.src = this.result;
                         var div = document.createElement('div');
-                        div.appendChild(image);
-                        div.innerHTML += `
-                            <label>
-                                <input type="checkbox" name="upload" value="${file.name}">
-                                Upload
-                            </label>
-                            <button type="button" class="preview-button" onclick="showPreview('${this.result}')">Preview</button>
+                        div.innerHTML = `
+                            <img src="${this.result}" onclick="showPreview('${this.result}')">
+                            <p>${file.name}</p>
                         `;
                         preview.appendChild(div);
                     }, false);
@@ -115,14 +123,12 @@
 
         function zoomIn() {
             var modalImg = document.getElementById("modalImage");
-            var currWidth = modalImg.clientWidth;
-            modalImg.style.width = (currWidth + 100) + "px";
+            modalImg.style.width = (modalImg.clientWidth + 100) + "px";
         }
 
         function zoomOut() {
             var modalImg = document.getElementById("modalImage");
-            var currWidth = modalImg.clientWidth;
-            modalImg.style.width = (currWidth - 100) + "px";
+            modalImg.style.width = (modalImg.clientWidth - 100) + "px";
         }
 
         function selectAllFiles() {
@@ -142,6 +148,38 @@
                 modal.style.display = "none";
             }
         }
+
+        // Handle form submission and display inference results
+        document.getElementById("uploadForm").onsubmit = async function(event) {
+            event.preventDefault();
+            let formData = new FormData(this);
+
+            let response = await fetch("/runInferenceTest", {
+                method: "POST",
+                body: formData
+            });
+
+            let data = await response.json();
+            let resultContainer = document.getElementById("results");
+
+            if (data.error) {
+                resultContainer.innerHTML = `<p style="color: red;">Error: ${data.error}</p>`;
+                return;
+            }
+
+            resultContainer.innerHTML = `<h3>Inference Results</h3>`;
+            resultContainer.innerHTML += `<p><strong>Total Processing Time:</strong> ${data.elapsed_time} seconds</p>`;
+
+            data.results.forEach(result => {
+                resultContainer.innerHTML += `
+                    <div class="result-item">
+                        <p><strong>Filename:</strong> ${result.filename}</p>
+                        <p><strong>Predicted Class:</strong> ${result.predicted_class}</p>
+                        <p><strong>Probability Distribution:</strong> ${result.probabilities.join(", ")}</p>
+                    </div>
+                `;
+            });
+        };
     </script>
 </body>
 </html>

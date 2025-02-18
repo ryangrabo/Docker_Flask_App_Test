@@ -246,6 +246,32 @@ def upload_file():
 
     return render_template("testUpload.html")
 
+#testing yolomodel shi
+from ultralytics import YOLO
+import time
+
+@bp.route("/runInferenceTest", methods=["GET", "POST"])
+def run_inference():
+    if request.method == "POST":
+        if "file" not in request.files:
+            logging.error(" No file part in request")
+            return redirect(request.url)
+
+        files = request.files.getlist("file")
+                
+        for file in files:
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+
+                # Read file bytes into memory
+                file_bytes = file.read()
+                # Load the model
+                model = YOLO("singleModel_0.0.1.pt")  # Load a pretrained model in same directory as routes
+                start_time=time.perf_counter()
+                
+        return redirect(url_for("main.index"))
+
+    return render_template("runInference.html")
 
 @bp.route("/test-image")
 def test_image():
