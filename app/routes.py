@@ -245,8 +245,7 @@ def upload_file():
         return redirect(url_for("main.index"))
 
     return render_template("testUpload.html")
-
-#testing yolomodel shi
+# YOLO Model Inference
 from ultralytics import YOLO
 import time
 
@@ -254,24 +253,50 @@ import time
 def run_inference():
     if request.method == "POST":
         if "file" not in request.files:
-            logging.error(" No file part in request")
-            return redirect(request.url)
+            logging.error("No file part in request")
+            return jsonify({"error": "No file part in request"}), 400
 
         files = request.files.getlist("file")
-                
+        if not files:
+            logging.error("No valid files received")
+            return jsonify({"error": "No valid files received"}), 400
+
+        model = YOLO("singleModel_0.0.1.pt")  # Load a pretrained model in the same directory
+        results_list = []
+
+        start_time = time.perf_counter()
+
         for file in files:
             if file and allowed_file(file.filename):
                 filename = secure_filename(file.filename)
+                file_bytes = file.read()  # Read file into memory
 
-                # Read file bytes into memory
-                file_bytes = file.read()
-                # Load the model
-                model = YOLO("singleModel_0.0.1.pt")  # Load a pretrained model in same directory as routes
-                start_time=time.perf_counter()
-                
-        return redirect(url_for("main.index"))
+                # Perform inference
+                results = model.predict(file_bytes, stream=True)
+
+                for result in results:
+                    top_index = result.probs.top1  # Get top prediction index
+                    top_class = result.names[top_index]  # Get class name
+                    probabilities = result.probs.data.tolist()  # Get probabilities
+
+                    # Store result for this file
+                    results_list.append({
+                        "filename": filename,
+                        "predicted_class": top_class,
+                        "probabilities": probabilities,
+                        "top_index": top_index
+                    })
+
+        end_time = time.perf_counter()
+        elapsed_time = round(end_time - start_time, 4)
+
+        return jsonify({
+            "results": results_list,
+            "elapsed_time": elapsed_time
+        })
 
     return render_template("runInference.html")
+
 
 @bp.route("/test-image")
 def test_image():
