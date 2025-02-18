@@ -245,9 +245,19 @@ def upload_file():
         return redirect(url_for("main.index"))
 
     return render_template("testUpload.html")
-# YOLO Model Inference
+
+from flask import request, jsonify, render_template
 from ultralytics import YOLO
+import os
 import time
+import cv2
+import numpy as np
+from werkzeug.utils import secure_filename
+from io import BytesIO
+from PIL import Image
+import logging
+
+UPLOAD_FOLDER = "uploads"  # Ensure this folder exists
 
 @bp.route("/runInferenceTest", methods=["GET", "POST"])
 def run_inference():
@@ -261,7 +271,8 @@ def run_inference():
             logging.error("No valid files received")
             return jsonify({"error": "No valid files received"}), 400
 
-        model = YOLO("singleModel_0.0.1.pt")  # Load a pretrained model in the same directory
+        model_path = os.path.join(os.getcwd(), "app", "singleModel_0.0.1.pt")
+        model = YOLO(model_path)
         results_list = []
 
         start_time = time.perf_counter()
@@ -269,10 +280,14 @@ def run_inference():
         for file in files:
             if file and allowed_file(file.filename):
                 filename = secure_filename(file.filename)
-                file_bytes = file.read()  # Read file into memory
+                save_path = os.path.join(UPLOAD_FOLDER, filename)
 
-                # Perform inference
-                results = model.predict(file_bytes, stream=True)
+                # Save the uploaded image
+                file.save(save_path)
+                print(f"Image saved at {save_path}")
+
+                # Run inference using the saved file path
+                results = model.predict(save_path, stream=True)
 
                 for result in results:
                     top_index = result.probs.top1  # Get top prediction index
