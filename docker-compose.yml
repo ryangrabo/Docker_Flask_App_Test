@@ -1,3 +1,4 @@
+version: '3.8'
 
 services:
   flask_app:
@@ -7,24 +8,39 @@ services:
       - mongodbtest
     environment:
       - NODE_ENV=production  # (Optional, for future use)
-      - MONGO_URI=mongodb://mongodbtest:27017/  # Ensures Flask connects to MongoDB in Docker
+      - MONGO_URI=mongodb://mongodbtest:27017/seniorDesignTesting  # Ensures Flask connects to MongoDB in Docker
+      - FLASK_ENV=development  # Enables debug mode (for hot-reloading)
+      - FLASK_RUN_EXTRA_FILES=1  # Required for detecting changes
     ports:
       - "5000:5000"
-    develop:
-      watch:
-        - path: ./app  # Auto-rebuild Flask when code changes
-          target: /Docker_Flask_App_Test
-          action: sync
+    volumes:
+      - ./app:/app  # Binds local code directory to container for live updates
+    networks:
+      - flask_network  # Ensures Flask can talk to MongoDB
 
   mongodbtest:
     image: mongo:6.0
     container_name: mongodbtest
     ports:
       - "27017:27017"
-    # Uncomment this if you want MongoDB data persistence across container restarts
-    # volumes:
-    #   - mongo-data:/data/db
+    volumes:
+      - mongo-data:/data/db  # Persistent storage
+    networks:
+      - flask_network  # Ensures Flask and MongoDB are on the same network
 
-# Uncomment this if you enable MongoDB volumes
-# volumes:
-#   mongo-data:
+  # cloudflared:
+  #   image: cloudflare/cloudflared
+  #   container_name: cloudflare-tunnel
+  #   restart: unless-stopped
+  #   command: tunnel run dc9_1yHh9x2PConIVXWovSVOAnUUDS9ntYIFfQjS
+  #   environment:
+  #     - TUNNEL_TOKEN=dc9_1yHh9x2PConIVXWovSVOAnUUDS9ntYIFfQjS
+  #   depends_on:
+  #     - flask_app  # Ensures Flask is up before starting the tunnel
+
+volumes:
+  mongo-data:  # Persistent MongoDB storage
+
+networks:
+  flask_network:  # Custom network for Flask and MongoDB
+    driver: bridge

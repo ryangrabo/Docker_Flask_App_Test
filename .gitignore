@@ -1,4 +1,5 @@
 venv/
+myenv/
 __pycache__/
 *.pyc
 *.pyo
@@ -13,3 +14,4 @@ Dockerfile~
 .vscode/
 .idea/
 *.sublime-workspace
+data/

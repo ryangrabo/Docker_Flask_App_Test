@@ -21,6 +21,9 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 DATABASE_NAME = "seniorDesignTesting"
 COLLECTION_NAME = "sendAndRecievePlantInfoTest"
 
+
+
+
 # Local/OneDrive folder for uploads:
 UPLOAD_FOLDER = r"C:\Users\frost\OneDrive - The Pennsylvania State University\2024_drone_images\purple_loosestrife\07-17-2024"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -71,7 +74,7 @@ def convert_to_degrees(value, ref_tag):
 @bp.route("/")
 def index():
     """Render a simple landing page."""
-    return render_template("index_clustering.html", mapbox_token=os.getenv("MAPBOX_TOKEN"))
+    return render_template("mapbox.html", mapbox_token=os.getenv("MAPBOX_TOKEN"))
     #return render_template("index.html", mapbox_token=os.getenv("MAPBOX_TOKEN"))
 
 @bp.route('/images')
@@ -168,10 +171,10 @@ def upload_file():
         collection = db[COLLECTION_NAME]
 
         # # Log database and collection being used
-        # logging.info(f" Writing to database: {db.name}")
-        # logging.info(f" Writing to collection: {collection.name}")
-        # logging.info(f" Document count before upload: {collection.count_documents({})}")
-
+        logging.info(f" Writing to database: {db.name}")
+        logging.info(f" Writing to collection: {collection.name}")
+        logging.info(f" Document count before upload: {collection.count_documents({})}")
+        logging.info(f" Flask is connecting to: {os.getenv('MONGO_URI', 'mongodb://localhost:27017/')}")            
         for file in files:
             if file and allowed_file(file.filename):
                 filename = secure_filename(file.filename)
@@ -234,7 +237,9 @@ def upload_file():
 
         # Check if the document was successfully inserted
         logging.info(f" Document count after upload: {collection.count_documents({})}")
-        logging.info(f" Sample document: {collection.find_one()}")
+        sample_doc = collection.find_one({}, {"_id": 1, "properties.filename": 1, "properties.lat": 1, "properties.lon": 1})
+        logging.info(f"Sample document (without binary): {sample_doc}")
+
 
         client.close()
         return redirect(url_for("main.index"))
