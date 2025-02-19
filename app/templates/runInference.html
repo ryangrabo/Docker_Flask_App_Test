@@ -8,25 +8,24 @@
             width: 150px;
             height: 150px;
             object-fit: cover;
+            cursor: pointer;
         }
-        .preview-button {
+        .result-item {
+            border: 1px solid #ddd;
+            padding: 10px;
             margin: 5px;
-        }
-        .preview-image {
-            max-width: 90%;
-            max-height: 90%;
+            background-color: #f9f9f9;
         }
         .modal {
             display: none;
             position: fixed;
             z-index: 1;
-            padding-top: 60px;
             left: 0;
             top: 0;
             width: 100%;
             height: 100%;
             overflow: auto;
-            background-color: rgba(0, 0, 0, 0.4);
+            background-color: rgba(0, 0, 0, 0.6);
         }
         .modal-content {
             background-color: #fefefe;
@@ -34,27 +33,25 @@
             padding: 20px;
             border: 1px solid #888;
             width: 80%;
+            text-align: center;
         }
         .close {
             color: #aaa;
             float: right;
             font-size: 28px;
             font-weight: bold;
-        }
-        .close:hover,
-        .close:focus {
-            color: black;
-            text-decoration: none;
             cursor: pointer;
         }
-        #results {
-            margin-top: 20px;
+        .close:hover {
+            color: black;
         }
-        .result-item {
-            border: 1px solid #ddd;
-            padding: 10px;
-            margin: 5px;
-            background-color: #f9f9f9;
+        .preview-image {
+            max-width: 90%;
+            max-height: 90%;
+        }
+        #saveAllButton {
+            display: none;
+            margin-top: 10px;
         }
     </style>
 </head>
@@ -68,13 +65,12 @@
         <button type="submit">Run Inference</button>
     </form>
 
-    <a href="/">Go back to the map</a>
-
     <div id="results"></div>
+    <button id="saveAllButton" onclick="saveResults()">Save Selected to Database</button>
 
-    <div id="myModal" class="modal">
+    <div id="imageModal" class="modal">
         <div class="modal-content">
-            <span class="close">&times;</span>
+            <span class="close" onclick="closeModal()">&times;</span>
             <img id="modalImage" class="preview-image">
             <div>
                 <button onclick="zoomIn()">Zoom In</button>
@@ -84,75 +80,57 @@
     </div>
 
     <script>
+        let inferenceResults = []; // Store inference results globally
+
         function previewFiles() {
-            var preview = document.getElementById('preview');
-            var files = document.querySelector('input[type=file]').files;
+            let preview = document.getElementById('preview');
+            let files = document.querySelector('input[type=file]').files;
             preview.innerHTML = '';
 
-            function readAndPreview(file) {
+            Array.from(files).forEach(file => {
                 if (/\.(jpe?g|png|gif)$/i.test(file.name)) {
-                    var reader = new FileReader();
-
-                    reader.addEventListener('load', function () {
-                        var image = new Image();
-                        image.title = file.name;
-                        image.src = this.result;
-                        var div = document.createElement('div');
+                    let reader = new FileReader();
+                    reader.onload = function (e) {
+                        let div = document.createElement('div');
                         div.innerHTML = `
-                            <img src="${this.result}" onclick="showPreview('${this.result}')">
+                            <img src="${e.target.result}" onclick="showPreview('${e.target.result}')">
                             <p>${file.name}</p>
                         `;
                         preview.appendChild(div);
-                    }, false);
-
+                    };
                     reader.readAsDataURL(file);
                 }
-            }
-
-            if (files) {
-                [].forEach.call(files, readAndPreview);
-            }
+            });
         }
 
         function showPreview(src) {
-            var modal = document.getElementById("myModal");
-            var modalImg = document.getElementById("modalImage");
+            let modal = document.getElementById("imageModal");
+            let modalImg = document.getElementById("modalImage");
             modal.style.display = "block";
             modalImg.src = src;
         }
 
+        function closeModal() {
+            document.getElementById("imageModal").style.display = "none";
+        }
+
         function zoomIn() {
-            var modalImg = document.getElementById("modalImage");
+            let modalImg = document.getElementById("modalImage");
             modalImg.style.width = (modalImg.clientWidth + 100) + "px";
         }
 
         function zoomOut() {
-            var modalImg = document.getElementById("modalImage");
+            let modalImg = document.getElementById("modalImage");
             modalImg.style.width = (modalImg.clientWidth - 100) + "px";
         }
 
         function selectAllFiles() {
-            var checkboxes = document.querySelectorAll('input[type="checkbox"]');
-            checkboxes.forEach(checkbox => checkbox.checked = true);
+            document.querySelectorAll(".save-checkbox").forEach(cb => cb.checked = true);
         }
 
-        var modal = document.getElementById("myModal");
-        var span = document.getElementsByClassName("close")[0];
-
-        span.onclick = function() {
-            modal.style.display = "none";
-        }
-
-        window.onclick = function(event) {
-            if (event.target == modal) {
-                modal.style.display = "none";
-            }
-        }
-
-        // Handle form submission and display inference results
-        document.getElementById("uploadForm").onsubmit = async function(event) {
+        async function runInference(event) {
             event.preventDefault();
-            let formData = new FormData(this);
+            let formData = new FormData(document.getElementById("uploadForm"));
 
             let response = await fetch("/runInferenceTest", {
                 method: "POST",
@@ -167,19 +145,40 @@
                 return;
             }
 
+            inferenceResults = data.results; // Store for later saving
             resultContainer.innerHTML = `<h3>Inference Results</h3>`;
             resultContainer.innerHTML += `<p><strong>Total Processing Time:</strong> ${data.elapsed_time} seconds</p>`;
 
-            data.results.forEach(result => {
+            data.results.forEach((result, index) => {
                 resultContainer.innerHTML += `
                     <div class="result-item">
+                        <input type="checkbox" class="save-checkbox" value="${index}">
                         <p><strong>Filename:</strong> ${result.filename}</p>
                         <p><strong>Predicted Class:</strong> ${result.predicted_class}</p>
                         <p><strong>Probability Distribution:</strong> ${result.probabilities.join(", ")}</p>
+                        <img src="/getImage/${result.file_id}" onclick="showPreview('/getImage/${result.file_id}')">
                     </div>
                 `;
             });
-        };
+
+            document.getElementById("saveAllButton").style.display = "block"; // Show save button
+        }
+
+        async function saveResults() {
+            let selectedIndexes = [...document.querySelectorAll(".save-checkbox:checked")].map(cb => cb.value);
+            let selectedResults = selectedIndexes.map(i => inferenceResults[i]);
+
+            let response = await fetch("/saveResults", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ results: selectedResults })
+            });
+
+            let data = await response.json();
+            alert(data.message);
+        }
+
+        document.getElementById("uploadForm").onsubmit = runInference;
     </script>
 </body>
 </html>

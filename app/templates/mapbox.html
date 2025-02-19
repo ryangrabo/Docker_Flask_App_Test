@@ -177,27 +177,34 @@
         map.getCanvas().style.cursor = '';
       });
 
-      // For unclustered points, display a popup on click.
-      map.on('click', 'unclustered-point', function (e) {
-        const coordinates = e.features[0].geometry.coordinates.slice();
-        const props = e.features[0].properties;
-        let popupContent = `<h3>${props.filename}</h3>
-          <p><strong>Latitude, Longitude:</strong> ${props.lat}, ${props.lon}</p>
-          <p><strong>MSL Altitude:</strong> ${props.msl_alt}</p>
-          <p><strong>Yaw:</strong> ${props.yaw}°</p>`;
-          //image not showing rn
-        if (props.image_data_base64) {
-          popupContent += `<img src="data:image/jpeg;base64,${props.image_data_base64}" alt="${props.filename}" style="max-width:${currentImageSize}px; height:auto;">`;
-        } else {
-          popupContent += `<p>No image data stored in DB.</p>`;
-        }
-        new mapboxgl.Popup()
-          .setLngLat(coordinates)
-          .setHTML(popupContent)
-          .addTo(map);
-      });
+      map.on("click", "unclustered-point", function (e) {
+    console.log("Feature Clicked:", e.features[0]);
+    console.log("Properties:", e.features[0].properties);
 
-      // Change cursor for unclustered points.
+    const coordinates = e.features[0].geometry.coordinates.slice();
+    const props = e.features[0].properties;
+
+    let popupContent = `<h3>${props.filename || "No Filename"}</h3>
+      <p><strong>Latitude, Longitude:</strong> ${props.lat || "N/A"}, ${props.lon || "N/A"}</p>
+      <p><strong>MSL Altitude:</strong> ${props.msl_alt ? props.msl_alt + " m" : "N/A"}</p>
+      
+      <p><strong>Predicted Class:</strong> ${props.predicted_class || "Unknown"}</p>
+      <p><strong>Probabilities:</strong> ${Array.isArray(props.probabilities) ? props.probabilities.join(", ") : "N/A"}</p>
+      <img src="/getImage/${props.file_id}" 
+     alt="${props.filename}" 
+     style="max-width: 200px; height: auto; display: block; margin: 10px auto; border-radius: 5px; cursor: pointer;" 
+     onclick="showPreview('/getImage/${props.file_id}')">
+
+      `;
+//add into popupcontent if you want
+    //<p><strong>Yaw:</strong> ${props.yaw ? props.yaw + "°" : "N/A"}</p>
+    new mapboxgl.Popup()
+        .setLngLat(coordinates)
+        .setHTML(popupContent)
+        .addTo(map);
+});
+
+
       map.on('mouseenter', 'unclustered-point', function () {
         map.getCanvas().style.cursor = 'pointer';
       });
@@ -205,6 +212,34 @@
         map.getCanvas().style.cursor = '';
       });
     }
+    
+    function showPreview(imageUrl) {
+    const modal = document.createElement("div");
+    modal.style.position = "fixed";
+    modal.style.top = "0";
+    modal.style.left = "0";
+    modal.style.width = "100%";
+    modal.style.height = "100%";
+    modal.style.background = "rgba(0, 0, 0, 0.8)";
+    modal.style.display = "flex";
+    modal.style.alignItems = "center";
+    modal.style.justifyContent = "center";
+    modal.style.zIndex = "1000";
+
+    const img = document.createElement("img");
+    img.src = imageUrl;
+    img.style.maxWidth = "90%";
+    img.style.maxHeight = "90%";
+    img.style.border = "5px solid white";
+    img.style.borderRadius = "8px";
+
+    modal.appendChild(img);
+    document.body.appendChild(modal);
+
+    modal.onclick = function () {
+        document.body.removeChild(modal);
+    };
+}
 
     // Switch styles and ensure the markers are re-added after the new style loads.
     function setMapStyle(style) {

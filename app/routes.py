@@ -10,6 +10,17 @@ import exifread
 from io import BytesIO  # Ensure BytesIO is imported
 import io
 import socket
+from flask import request, jsonify, render_template
+from ultralytics import YOLO
+import os
+import time
+import cv2
+import numpy as np
+from werkzeug.utils import secure_filename
+from io import BytesIO
+from PIL import Image
+import logging
+import gridfs
 
 bp = Blueprint("main", __name__)
 
@@ -21,8 +32,10 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 DATABASE_NAME = "seniorDesignTesting"
 COLLECTION_NAME = "sendAndRecievePlantInfoTest"
 
-
-
+#file storage system for mongo
+client = MongoClient(MONGO_URI)  # Connect to MongoDB
+db = client[DATABASE_NAME]  # Get database instance
+fs = gridfs.GridFS(db)  
 
 # Local/OneDrive folder for uploads:
 UPLOAD_FOLDER = r"C:\Users\frost\OneDrive - The Pennsylvania State University\2024_drone_images\purple_loosestrife\07-17-2024"
@@ -70,6 +83,7 @@ def convert_to_degrees(value, ref_tag):
         logging.error(f"Error converting GPS value: {e}")
         return None
 
+#MAPBOX
 
 @bp.route("/")
 def index():
@@ -117,8 +131,9 @@ def get_images():
                 "msl_alt": properties.get("msl_alt"),
                 "agl": properties.get("agl", "undefined"),
                 "agl_feet": properties.get("agl_feet", "undefined"),
-                # Include base64 image data
-                "image_data_base64": image_data_base64
+                "predicted_class": properties.get("predicted_class"),
+                "probabilities": properties.get("probabilities"),
+                "file_id": properties.get("file_id")
             },
             "geometry": {
                 "type": "Point",
@@ -130,33 +145,176 @@ def get_images():
 
     return jsonify(geojson_data)
 
-@bp.route("/get_image/<image_id>")
-def get_image(image_id):
+
+@bp.route("/getImage/<file_id>", methods=["GET"])
+def get_image(file_id):
+    """Retrieve and serve an image stored in MongoDB GridFS."""
+    try:
+        # Convert file_id from string to ObjectId
+        file_object_id = ObjectId(file_id)
+
+        # Retrieve the image from GridFS
+        retrieved_file = fs.get(file_object_id)
+
+        return send_file(BytesIO(retrieved_file.read()), mimetype="image/jpeg")
+
+    except Exception as e:
+        return jsonify({"error": f"Image not found: {str(e)}"}), 404
+
+
+
+
+@bp.route("/runInferenceTest", methods=["GET", "POST"])
+def run_inference():
+    if request.method == "GET":
+        return render_template("runInference.html")
+    if "file" not in request.files:
+        return jsonify({"error": "No file part in request"}), 400
+
+    file = request.files["file"]
+
+    if file.filename == "":
+        return jsonify({"error": "No selected file"}), 400
+
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+
+        # Save file to MongoDB GridFS
+        file_id = fs.put(file, filename=filename)
+        print(f"Saved to MongoDB with ID: {file_id}")
+
+        # Retrieve the image from MongoDB
+        retrieved_file = fs.get(file_id)
+        image_data = np.array(Image.open(BytesIO(retrieved_file.read())))  # Convert to NumPy array
+        image_data = cv2.cvtColor(image_data, cv2.COLOR_RGB2BGR)  # Convert RGB to BGR
+
+        start_time = time.perf_counter()
+        # Get model
+        model_path = os.path.join(os.getcwd(), "app", "singleModel_0.0.1.pt")
+        model = YOLO(model_path)
+        # Run YOLO inference
+        results = model.predict(image_data, stream=True)
+        results_list = []
+
+        for result in results:
+            top_index = result.probs.top1  # Get top prediction index
+            top_class = result.names[top_index]  # Get class name
+            probabilities = result.probs.data.tolist()  # Get probabilities
+
+            results_list.append({
+                "filename": filename,
+                "predicted_class": top_class,
+                "probabilities": probabilities,
+                "top_index": top_index,
+                "file_id": str(file_id)  # Store MongoDB file ID
+            })
+
+        end_time = time.perf_counter()
+        elapsed_time = round(end_time - start_time, 4)
+
+        return jsonify({
+            "results": results_list,
+            "elapsed_time": elapsed_time
+        })
+
+@bp.route("/saveResults", methods=["POST"])
+def save_results():
     client = connect_to_mongodb()
     db = client[DATABASE_NAME]
     collection = db[COLLECTION_NAME]
-    """Fetch image stored in base64 format from MongoDB."""
-    try:
-        logging.info(f"Retrieving image with ID: {image_id}")
-        image_doc = collection.find_one({"_id": ObjectId(image_id)})
 
-        if not image_doc or "image_data" not in image_doc["properties"]:
-            logging.error("Image not found in MongoDB.")
-            return abort(404, "Image not found")
+    data = request.json
+    results = data.get("results", [])
 
-        image_data = image_doc["properties"]["image_data"]  # BSON Binary
+    if not results:
+        return jsonify({"error": "No results provided"}), 400
 
-        # Ensure it's in correct binary format
-        if not isinstance(image_data, bytes):
-            logging.error("Stored image is not in bytes format.")
-            return abort(500, "Invalid image format")
+    geojson_results = []
 
-        logging.info("Successfully retrieved image from MongoDB.")
-        return Response(image_data, mimetype="image/jpeg")
+    for result in results:
+        try:
+            # Retrieve image file from MongoDB GridFS
+            retrieved_file = fs.get(ObjectId(result["file_id"]))  # Convert file_id to ObjectId
+            file_bytes = retrieved_file.read()
 
-    except Exception as e:
-        logging.error(f"Error retrieving image {image_id}: {e}")
-        return abort(500)
+            # Extract EXIF metadata
+            stream = BytesIO(file_bytes)
+            tags = exifread.process_file(stream, details=False)
+
+            # Extract GPS data
+            lat, lon = None, None
+            if 'GPS GPSLatitude' in tags and 'GPS GPSLongitude' in tags:
+                lat = convert_to_degrees(tags['GPS GPSLatitude'], tags.get('GPS GPSLatitudeRef'))
+                lon = convert_to_degrees(tags['GPS GPSLongitude'], tags.get('GPS GPSLongitudeRef'))
+                lat = lat - LATITUDE_OFFSET if lat is not None else None
+                lon = lon - LONGITUDE_OFFSET if lon is not None else None
+
+            # Extract image direction (yaw) if available
+            yaw = "Unknown"
+            if 'GPS GPSImgDirection' in tags:
+                try:
+                    direction = tags['GPS GPSImgDirection'].values[0]
+                    yaw = float(direction.num) / float(direction.den)
+                except Exception:
+                    yaw = "Unknown"
+
+            # Extract altitude (meters) if available
+            altitude_meters = None
+            if 'GPS GPSAltitude' in tags:
+                try:
+                    altitude = tags['GPS GPSAltitude'].values[0]
+                    altitude_meters = float(altitude.num) / float(altitude.den)
+                except Exception:
+                    altitude_meters = None
+
+            # Create GeoJSON formatted result
+            geojson_results.append({
+                "type": "Feature",
+                "properties": {
+                    "filename": result["filename"],
+                    "predicted_class": result["predicted_class"],
+                    "probabilities": result["probabilities"],
+                    "file_id": result["file_id"],
+                    "lat": lat,
+                    "lon": lon,
+                    "yaw": yaw,
+                    "msl_alt": altitude_meters,
+                },
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [lon, lat] if lat is not None and lon is not None else None
+                }
+            })
+
+        except Exception as e:
+            logging.error(f"Error processing file {result['file_id']}: {e}")
+
+    # Save results in MongoDB
+    if geojson_results:
+        inserted_ids = collection.insert_many(geojson_results).inserted_ids
+        return jsonify({"message": f"Saved {len(inserted_ids)} results to the database"})
+
+    return jsonify({"error": "No valid results to save"}), 400
+
+
+
+@bp.route("/test-image")
+def test_image():
+    client = connect_to_mongodb()
+    db = client[DATABASE_NAME]
+    collection = db[COLLECTION_NAME]
+
+    doc = collection.find_one()
+    
+    if not doc:
+        return jsonify({"error": "No images found in database"}), 404
+
+    return jsonify({
+        "_id": str(doc["_id"]),
+        "filename": doc.get("filename"),
+        "image_data": base64.b64encode(doc["image_data"]).decode("utf-8") if "image_data" in doc else None
+    })
+
 
 @bp.route("/upload", methods=["GET", "POST"])
 def upload_file():
@@ -245,87 +403,3 @@ def upload_file():
         return redirect(url_for("main.index"))
 
     return render_template("testUpload.html")
-
-from flask import request, jsonify, render_template
-from ultralytics import YOLO
-import os
-import time
-import cv2
-import numpy as np
-from werkzeug.utils import secure_filename
-from io import BytesIO
-from PIL import Image
-import logging
-
-UPLOAD_FOLDER = "uploads"  # Ensure this folder exists
-
-@bp.route("/runInferenceTest", methods=["GET", "POST"])
-def run_inference():
-    if request.method == "POST":
-        if "file" not in request.files:
-            logging.error("No file part in request")
-            return jsonify({"error": "No file part in request"}), 400
-
-        files = request.files.getlist("file")
-        if not files:
-            logging.error("No valid files received")
-            return jsonify({"error": "No valid files received"}), 400
-
-        model_path = os.path.join(os.getcwd(), "app", "singleModel_0.0.1.pt")
-        model = YOLO(model_path)
-        results_list = []
-
-        start_time = time.perf_counter()
-
-        for file in files:
-            if file and allowed_file(file.filename):
-                filename = secure_filename(file.filename)
-                save_path = os.path.join(UPLOAD_FOLDER, filename)
-
-                # Save the uploaded image
-                file.save(save_path)
-                print(f"Image saved at {save_path}")
-
-                # Run inference using the saved file path
-                results = model.predict(save_path, stream=True)
-
-                for result in results:
-                    top_index = result.probs.top1  # Get top prediction index
-                    top_class = result.names[top_index]  # Get class name
-                    probabilities = result.probs.data.tolist()  # Get probabilities
-
-                    # Store result for this file
-                    results_list.append({
-                        "filename": filename,
-                        "predicted_class": top_class,
-                        "probabilities": probabilities,
-                        "top_index": top_index
-                    })
-
-        end_time = time.perf_counter()
-        elapsed_time = round(end_time - start_time, 4)
-
-        return jsonify({
-            "results": results_list,
-            "elapsed_time": elapsed_time
-        })
-
-    return render_template("runInference.html")
-
-
-@bp.route("/test-image")
-def test_image():
-    client = connect_to_mongodb()
-    db = client[DATABASE_NAME]
-    collection = db[COLLECTION_NAME]
-
-    doc = collection.find_one()
-    
-    if not doc:
-        return jsonify({"error": "No images found in database"}), 404
-
-    return jsonify({
-        "_id": str(doc["_id"]),
-        "filename": doc.get("filename"),
-        "image_data": base64.b64encode(doc["image_data"]).decode("utf-8") if "image_data" in doc else None
-    })

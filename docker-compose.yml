@@ -28,16 +28,6 @@ services:
     networks:
       - flask_network  # Ensures Flask and MongoDB are on the same network
 
-  # cloudflared:
-  #   image: cloudflare/cloudflared
-  #   container_name: cloudflare-tunnel
-  #   restart: unless-stopped
-  #   command: tunnel run dc9_1yHh9x2PConIVXWovSVOAnUUDS9ntYIFfQjS
-  #   environment:
-  #     - TUNNEL_TOKEN=dc9_1yHh9x2PConIVXWovSVOAnUUDS9ntYIFfQjS
-  #   depends_on:
-  #     - flask_app  # Ensures Flask is up before starting the tunnel
-
 volumes:
   mongo-data:  # Persistent MongoDB storage
 

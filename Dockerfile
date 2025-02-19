@@ -1,5 +1,5 @@
 # Use the official Python 3.8 slim image as the base image
-FROM python:3.8-slim
+FROM python:3.10.12-slim
 
 # Set the working directory within the container
 WORKDIR /Docker_Flask_App_Test
@@ -8,13 +8,17 @@ WORKDIR /Docker_Flask_App_Test
 RUN apt-get update && apt-get install -y \
     build-essential \
     python3-dev \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for caching
 COPY requirements.txt ./
 
 # Upgrade pip and install dependencies
-RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
+#RUN pip install -r requirements.txt
 
 # Copy the application files
 COPY . .
